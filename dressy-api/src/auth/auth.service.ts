@@ -1,12 +1,57 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { RegisterDto } from './dto/register-dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { Profile } from '@prisma/client';
+import { JwtService } from '@nestjs/jwt';
+import { LoginDto } from './dto/login-dto';
+import { Response } from 'express';
 
 @Injectable()
 export class AuthService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jwtService: JwtService,
+  ) {}
+
+  async login(loginDTO: LoginDto, res: Response) {
+    const { email, password } = loginDTO;
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new HttpException('Invalid credentials', HttpStatus.UNAUTHORIZED);
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password ?? '');
+    if (!isPasswordValid)
+      throw new UnauthorizedException('Invalid credentials');
+
+    const tokens = await this.generateTokens(user.id);
+    await this.updateRefreshToken(user.id, tokens.refreshToken);
+
+    res.cookie('access_token', tokens.accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie('refresh_token', tokens.refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return { message: 'Login successful' };
+  }
 
   async createUser(registerDTO: RegisterDto): Promise<Profile> {
     const { email, fullName, password, profileName } = registerDTO;
@@ -50,5 +95,45 @@ export class AuthService {
         { cause: error },
       );
     }
+  }
+
+  async logout(userId: string, res: Response) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: null },
+    });
+
+    res.clearCookie('access_token');
+    res.clearCookie('refresh_token');
+    return { message: 'Logout successful' };
+  }
+
+  async generateTokens(userId: string) {
+    const payload = { sub: userId };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret: process.env.JWT_ACCESS_SECRET,
+        expiresIn: '15m',
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: '7d',
+      }),
+    ]);
+
+    return { accessToken, refreshToken };
+  }
+
+  async updateRefreshToken(userId: string, refreshToken: string) {
+    const hashedToken = await bcrypt.hash(refreshToken, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: hashedToken },
+    });
+  }
+
+  async verifyToken(token: string, secret: string): Promise<any> {
+    return this.jwtService.verifyAsync(token, { secret });
   }
 }
