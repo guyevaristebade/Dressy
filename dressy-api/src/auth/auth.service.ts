@@ -11,6 +11,7 @@ import { Profile } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login-dto';
 import { Response } from 'express';
+import { Role } from './role.enum';
 
 @Injectable()
 export class AuthService {
@@ -18,6 +19,17 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
   ) {}
+
+  async logout(userId: string, res: Response) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { refreshToken: null },
+    });
+
+    res.clearCookie('access_token');
+    res.clearCookie('refresh_token');
+    return { message: 'Logout successful' };
+  }
 
   async login(loginDTO: LoginDto, res: Response) {
     const { email, password } = loginDTO;
@@ -33,7 +45,7 @@ export class AuthService {
     if (!isPasswordValid)
       throw new UnauthorizedException('Invalid credentials');
 
-    const tokens = await this.generateTokens(user.id);
+    const tokens = await this.generateTokens(user.id, user.role as Role);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     res.cookie('access_token', tokens.accessToken, {
@@ -96,26 +108,15 @@ export class AuthService {
       );
     }
   }
-
-  async logout(userId: string, res: Response) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken: null },
-    });
-
-    res.clearCookie('access_token');
-    res.clearCookie('refresh_token');
-    return { message: 'Logout successful' };
-  }
-
-  async generateTokens(userId: string) {
-    const payload = { sub: userId };
+  async generateTokens(userId: string, role: Role) {
+    const payload = { sub: userId, role };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: process.env.JWT_ACCESS_SECRET,
         expiresIn: '15m',
       }),
+
       this.jwtService.signAsync(payload, {
         secret: process.env.JWT_REFRESH_SECRET,
         expiresIn: '7d',

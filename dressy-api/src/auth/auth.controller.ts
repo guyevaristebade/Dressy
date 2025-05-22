@@ -1,9 +1,18 @@
-import { Body, Controller, Post, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register-dto';
 import { Profile } from '@prisma/client';
 import { LoginDto } from './dto/login-dto';
-import { Response } from 'express';
+import { Response, Request } from 'express';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -22,16 +31,14 @@ export class AuthController {
     return this.authService.login(dto, res);
   }
 
-  // TODO: Logout route
-  // @Delete('logout')
-  // async logout(@Res({ passthrough: true }) res: Response, req: Request) {}
+  // TODO: Logout route with guard
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('logout')
+  logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const user = (req as any).user as { userId: string; role: string };
+    return this.authService.logout(user.userId, res);
+  }
 
   // TODO: Refresh token route
-
-  /*
-Je dois implémenter la route pour le logout 
-
-Je dois revoir ce que GPT m'a montrer concernant le login et le refresh token
-
-*/
 }
