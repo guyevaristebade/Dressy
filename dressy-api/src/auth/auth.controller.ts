@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Post,
   Req,
   Res,
@@ -13,6 +14,8 @@ import { Profile } from '@prisma/client';
 import { LoginDto } from './dto/login-dto';
 import { Response, Request } from 'express';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+// import { Roles } from './decorators/roles.decorator';
+// import { RolesGuard } from './guards/role.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -34,11 +37,28 @@ export class AuthController {
   // TODO: Logout route with guard
 
   @UseGuards(JwtAuthGuard)
-  @Delete('logout')
-  logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const user = (req as any).user as { userId: string; role: string };
-    return this.authService.logout(user.userId, res);
+  @Get('refresh')
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const user = (req as any).user as { userId: string };
+    console.log('User:', user);
+    const refresh_token = req.cookies['refresh_token'];
+    return this.authService.refreshTokenRotation(refresh_token, user.userId);
   }
 
   // TODO: Refresh token route
+  @UseGuards(JwtAuthGuard)
+  @Get('test')
+  test() {
+    return { message: 'Test route' };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('logout')
+  logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const user = (req as any).user as { userId: string };
+    return this.authService.logout(user.userId, res);
+  }
 }

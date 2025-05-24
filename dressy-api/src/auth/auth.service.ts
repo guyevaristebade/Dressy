@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -11,7 +12,6 @@ import { Profile } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { LoginDto } from './dto/login-dto';
 import { Response } from 'express';
-import { Role } from './role.enum';
 
 @Injectable()
 export class AuthService {
@@ -45,7 +45,7 @@ export class AuthService {
     if (!isPasswordValid)
       throw new UnauthorizedException('Invalid credentials');
 
-    const tokens = await this.generateTokens(user.id, user.role as Role);
+    const tokens = await this.generateTokens(user.id);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     res.cookie('access_token', tokens.accessToken, {
@@ -62,7 +62,7 @@ export class AuthService {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    return { message: 'Login successful' };
+    return tokens;
   }
 
   async createUser(registerDTO: RegisterDto): Promise<Profile> {
@@ -108,13 +108,14 @@ export class AuthService {
       );
     }
   }
-  async generateTokens(userId: string, role: Role) {
-    const payload = { sub: userId, role };
+
+  async generateTokens(userId: string) {
+    const payload = { sub: userId };
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '15m',
+        expiresIn: '1m',
       }),
 
       this.jwtService.signAsync(payload, {
@@ -136,5 +137,36 @@ export class AuthService {
 
   async verifyToken(token: string, secret: string): Promise<any> {
     return this.jwtService.verifyAsync(token, { secret });
+  }
+
+  async refreshTokenRotation(refreshTokenCookie: string, userId: string) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { refreshToken: true },
+      });
+
+      if (!user || !user.refreshToken)
+        throw new UnauthorizedException('Missing refresh token');
+
+      const isRefreshTokenValid = await bcrypt.compare(
+        refreshTokenCookie,
+        user.refreshToken,
+      );
+
+      if (!isRefreshTokenValid) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      const tokens = await this.generateTokens(userId);
+      await this.updateRefreshToken(userId, tokens.refreshToken);
+      return tokens;
+    } catch (error) {
+      throw new HttpException(
+        'Internal server error',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        { cause: error },
+      );
+    }
   }
 }
