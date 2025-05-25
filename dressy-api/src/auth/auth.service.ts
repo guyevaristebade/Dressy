@@ -43,7 +43,7 @@ export class AuthService {
 
     const isPasswordValid = await bcrypt.compare(password, user.password ?? '');
     if (!isPasswordValid)
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('username or password invalid');
 
     const tokens = await this.generateTokens(user.id);
     await this.updateRefreshToken(user.id, tokens.refreshToken);
@@ -115,7 +115,7 @@ export class AuthService {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload, {
         secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '1m',
+        expiresIn: '15m',
       }),
 
       this.jwtService.signAsync(payload, {
@@ -155,6 +155,12 @@ export class AuthService {
       );
 
       if (!isRefreshTokenValid) {
+        // invalidate the refresh token in the database
+        // caused by usation of old refresh token
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { refreshToken: null },
+        });
         throw new UnauthorizedException('Invalid refresh token');
       }
 

@@ -38,12 +38,8 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('refresh')
-  async refresh(
-    @Req() req: Request,
-    @Res({ passthrough: true }) res: Response,
-  ) {
+  async refresh(@Req() req: Request) {
     const user = (req as any).user as { userId: string };
-    console.log('User:', user);
     const refresh_token = req.cookies['refresh_token'];
     return this.authService.refreshTokenRotation(refresh_token, user.userId);
   }
